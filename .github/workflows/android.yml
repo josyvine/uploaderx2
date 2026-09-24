@@ -22,7 +22,7 @@ jobs:
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/release.jks
 
-      # Automate AES-256 Encryption of Python Script
+      # 1. Automate AES-256 Encryption of Python Script
       - name: Encrypt Python Asset to Binary
         run: |
           openssl enc -aes-256-cbc -salt -pbkdf2 \
@@ -30,6 +30,21 @@ jobs:
             -out app/src/main/assets/youtube_automator.bin \
             -k "UploaderX_Secret_Key_2026"
           rm -f app/src/main/assets/youtube_automator.py
+
+      # 2. Automate Minification & Obfuscation of index.html
+      - name: Minify and Obfuscate HTML & JavaScript
+        run: |
+          npx html-minifier-terser \
+            --collapse-whitespace \
+            --remove-comments \
+            --remove-redundant-attributes \
+            --remove-script-type-attributes \
+            --remove-style-link-type-attributes \
+            --use-short-doctype \
+            --minify-css true \
+            --minify-js true \
+            -o app/src/main/assets/index.html \
+            app/src/main/assets/index.html
 
       - name: Build with Gradle
         uses: gradle/gradle-build-action@v2
