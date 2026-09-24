@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light only" />
+    <title>UploaderX</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?display=swap&family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;700" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pyodide-http@0.2.1/dist/pyodide-http.js"></script>
+
+<style>
+        html, body { background-color: #f1f5f9; color: #1e293b; margin:0; padding:0; }
+        body.terminal-active { background-color: #1e1e1e; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #e2e8f0; border-radius: 4px;}
+        ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+
+        .terminal, .xterm-viewport, .xterm-screen { height: 100%; }
+
+        #film-strip-container {
+            display: flex;
+            overflow-x: auto;
+            white-space: nowrap;
+            padding: 8px;
+            background-color: #e2e8f0;
+            border: 1px solid #cbd5e1;
+            border-radius: 0.5rem;
+            min-height: 120px;
+        }
+
+        #film-strip-container:empty::before {
+            content: "Selected videos will appear here...";
+            color: #64748b;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .film-strip-item {
+            flex: 0 0 auto;
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 0.375rem;
+            border: 3px solid transparent;
+            margin-right: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+
+        .film-strip-item:hover {
+            transform: scale(1.05);
+            border-color: #a5b4fc;
+        }
+        
+        .film-strip-item.single-selected {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.5);
+        }
+
+        .film-strip-item.batch-selected {
+            border-color: #16a34a;
+            box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.5);
+        }
+
+        #batch-terminal-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 8px;
+            padding: 8px;
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .task-window {
+            border: 1px solid #4b5563;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            background-color: #111827;
+        }
+
+        .task-header {
+            background-color: #374151;
+            color: #d1d5db;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .task-log {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 8px;
+            font-size: 0.75rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #f1f5f9;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        /* --- SLIDER MENU STYLES --- */
+        .slider-menu {
+            position: fixed; top: 0; right: -100%; width: 280px; max-width: 80%;
+            height: 100%; background: #1f2937;
+            z-index: 1010; transition: right 0.3s ease-in-out; display: flex;
+            flex-direction: column; padding: 20px 10px; border-left: 1px solid #374151;
+        }
+        .slider-menu.active { right: 0; }
+        .slider-menu-item { padding: 10px; color: #9ca3af; cursor: pointer; transition: background 0.2s; border-radius: 8px; display: flex; }
+        .slider-menu-item:hover { background: #374151; }
+        .slider-menu-item > button { width: 100%; text-align: left; }
+        .slider-divider { border: none; border-top: 1px solid #374151; margin: 10px 0; }
+        .overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6); z-index: 1000; display: none;
+        }
+        .overlay.active { display: block; }
+</style>
+  </head>
+  <body class="font-sans">
+    <div id="loading-overlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-[100] flex flex-col items-center justify-center transition-opacity duration-300">
+      <svg class="animate-spin h-10 w-10 text-indigo-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+      <h2 class="text-lg font-medium text-slate-700">Initializing Engine...</h2>
+      <p id="loading-status" class="text-sm text-slate-500 mt-1">Loading Python...</p>
+    </div>
+
+    <!-- START: Slider Menu, Overlay, and Pages -->
+    <div id="sliderMenu" class="slider-menu">
+      <div class="slider-menu-item">
+        <button id="help-btn" class="w-full text-left text-slate-300 font-medium">Help</button>
+      </div>
+      <div class="slider-menu-item">
+        <button id="contact-btn" class="w-full text-left text-slate-300 font-medium">Contact Us</button>
+      </div>
+      <hr class="slider-divider">
+    </div>
+    <div id="overlay" class="overlay"></div>
+
+    <div id="helpView" class="hidden fixed inset-0 z-[1001] bg-slate-100 flex flex-col">
+      <div class="flex-shrink-0 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+        <button id="help-back-btn" class="p-2 rounded-full hover:bg-slate-100 text-slate-600" title="Go Back">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 256 256"><path d="M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z"></path></svg>
+        </button>
+        <h2 class="text-lg font-semibold text-slate-800 flex-grow text-center mr-10">How to Use UploaderX</h2>
+      </div>
+      <div class="flex-grow overflow-y-auto p-4 sm:p-6 lg:p-8 text-slate-700 max-w-4xl mx-auto w-full">
+        <h3 class="text-lg font-semibold text-slate-900 mt-6 mb-2">Getting Started: Manage Accounts</h3>
+        <p class="mb-4">Configure at least one Google Account. You can add multiple accounts to manage different channels.</p>
+        <ul class="list-disc list-inside space-y-2 mb-4">
+          <li>Click <code>Add New Account</code> to create a new profile.</li>
+          <li>Give the account a memorable <strong>Nickname</strong> (e.g., "Gaming Channel").</li>
+          <li>Click <code>Choose File</code> or paste your Google Cloud credentials.</li>
+          <li>Click <code>Authorize</code> to sign in and grant permissions.</li>
+        </ul>
+
+        <h3 class="text-lg font-semibold text-slate-900 mt-6 mb-2">Configure Task</h3>
+        <p class="mb-4">Select the publishing account and set your preferred upload speed profile (4MB or 8MB).</p>
+
+        <h3 class="text-lg font-semibold text-slate-900 mt-6 mb-2">Provide Video Details</h3>
+        <p class="mb-4">Select your video files, fill in metadata, set privacy, and start the upload pipeline.</p>
+      </div>
+    </div>
+
+    <div id="contactView" class="hidden fixed inset-0 z-[1001] bg-slate-100 flex flex-col">
+      <div class="flex-shrink-0 bg-white border-b border-slate-200 p-4 text-center">
+        <h2 class="text-xl font-bold text-slate-800">Contact Us</h2>
+      </div>
+      <div class="flex-grow overflow-y-auto p-4 sm:p-6 lg:p-8 max-w-xl mx-auto w-full">
+        <p class="text-slate-600 mb-6 text-center">Have a question or feedback? Fill out the form below.</p>
+        <form id="contact-form" class="space-y-4">
+          <div>
+            <label for="contact-name" class="block text-sm font-medium text-slate-700 mb-2">Your Name</label>
+            <input type="text" id="contact-name" class="form-input w-full rounded-lg border-slate-300 p-3 text-sm focus:border-indigo-500 focus:ring-indigo-500 transition" required />
+          </div>
+          <div>
+            <label for="contact-email" class="block text-sm font-medium text-slate-700 mb-2">Your Email</label>
+            <input type="email" id="contact-email" class="form-input w-full rounded-lg border-slate-300 p-3 text-sm focus:border-indigo-500 focus:ring-indigo-500 transition" required />
+          </div>
+          <div>
+            <label for="contact-message" class="block text-sm font-medium text-slate-700 mb-2">Message</label>
+            <textarea id="contact-message" rows="5" class="form-input w-full rounded-lg border-slate-300 p-3 text-sm min-h-[120px] focus:border-indigo-500 focus:ring-indigo-500 transition" required></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="flex-shrink-0 p-4 bg-white border-t border-slate-200 flex gap-4 justify-center">
+        <button id="contact-back-btn" class="px-6 py-2 bg-slate-200 text-slate-800 font-semibold rounded-lg hover:bg-slate-300 transition">Back</button>
+        <button id="contact-send-btn" class="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition">Send Message</button>
+      </div>
+    </div>
+    <!-- END: Slider Menu, Overlay, and Pages -->
+
+    <div id="app-container">
+      <header class="fixed top-0 left-0 right-0 bg-white border-b border-slate-200 shadow-sm z-50">
+        <div class="mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          <div class="flex flex-col items-center gap-3">
+            <h1 class="text-xl font-bold text-slate-800">UploaderX</h1>
+            <div class="flex items-center gap-2 sm:gap-4 w-full sm:w-auto">
+              <div class="flex items-center border border-slate-200 rounded-lg p-1 flex-grow">
+                <button onclick="switchTab('config')" id="tab-btn-config" class="w-1/2 px-3 py-1 text-sm font-medium rounded-md bg-indigo-600 text-white">Config</button>
+                <button onclick="switchTab('terminal')" id="tab-btn-terminal" class="w-1/2 px-3 py-1 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-100">Terminal</button>
+              </div>
+              <button id="update-btn" title="Check for Updates" class="flex-shrink-0 flex items-center justify-center h-9 w-9 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors">
+                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 256 256"><path d="M232,128A104,104,0,0,1,49.08,197.62L25.3,221.41a8,8,0,0,1-11.31-11.32l23.8-23.79A104,104,0,1,1,232,128Zm-8,0a96,96,0,1,0-96,96,95.42,95.42,0,0,0,51.84-15.58,8,8,0,0,0-8.5-13.84A80,80,0,1,1,128,48a79.44,79.44,0,0,1,63.15,31.15,8,8,0,0,0,12.29-9.3A95.16,95.16,0,0,0,128,32,96,96,0,0,0,32,128Zm45.66-11.31a8,8,0,0,0-11.32,0l-32,32A8,8,0,0,0,136,152V200a8,8,0,0,0,16,0V165.31l20.69-20.68a8,8,0,0,0,0-11.32Z"></path></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="pt-28 pb-28">
+        <div id="tab-content-config">
+          <div class="max-w-xl mx-auto px-4">
+            
+            <!-- STEPPER PROGRESS BAR -->
+            <div class="mb-6 pt-2">
+              <div class="flex items-center justify-between relative">
+                <div class="absolute left-6 right-6 top-4 -translate-y-1/2 h-1 bg-slate-200 z-0">
+                  <div id="stepper-progress" class="h-full bg-indigo-600 transition-all duration-300 w-0"></div>
+                </div>
+                
+                <!-- 1. Accounts -->
+                <div class="relative z-10 flex flex-col items-center cursor-pointer" onclick="goToStep(1)">
+                  <div id="step-indicator-1" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-indigo-600 text-white shadow-md ring-4 ring-indigo-100 transition-all">1</div>
+                  <span id="step-label-1" class="text-xs font-semibold text-indigo-600 mt-1.5">Accounts</span>
+                </div>
+
+                <!-- 2. Configure -->
+                <div class="relative z-10 flex flex-col items-center cursor-pointer" onclick="goToStep(2)">
+                  <div id="step-indicator-2" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-white text-slate-400 border-2 border-slate-300 transition-all">2</div>
+                  <span id="step-label-2" class="text-xs font-medium text-slate-400 mt-1.5">Configure</span>
+                </div>
+
+                <!-- 3. Details -->
+                <div class="relative z-10 flex flex-col items-center cursor-pointer" onclick="goToStep(3)">
+                  <div id="step-indicator-3" class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-white text-slate-400 border-2 border-slate-300 transition-all">3</div>
+                  <span id="step-label-3" class="text-xs font-medium text-slate-400 mt-1.5">Details</span>
+                </div>
+              </div>
+            </div>
+
+            <form id="automation-form">
+              
+              <!-- PAGE 1: MANAGE ACCOUNTS -->
+              <section id="step-page-1" class="space-y-4">
+                <div>
+                  <h2 class="text-xl font-bold text-slate-800">Manage Accounts</h2>
+                  <p class="text-xs text-slate-500 mt-1">Configure and authorize your YouTube channels.</p>
+                </div>
+                <div id="accounts-container" class="space-y-4"></div>
+                <button type="button" onclick="addAccount()" class="w-full flex items-center justify-center gap-2 p-3 bg-white border border-indigo-200 hover:bg-indigo-50 text-indigo-600 text-sm font-semibold rounded-xl transition-all shadow-sm">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"></path></svg>
+                  Add New Account
+                </button>
+              </section>
+
+              <!-- PAGE 2: CONFIGURE TASK -->
+              <section id="step-page-2" class="hidden space-y-4">
+                <div>
+                  <h2 class="text-xl font-bold text-slate-800">Configure Task</h2>
+                  <p class="text-xs text-slate-500 mt-1">Choose the active account and transmission speed profile.</p>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-5 space-y-4 shadow-sm">
+                  <div>
+                    <label for="selected_account" class="block text-sm font-medium text-slate-700 mb-2">Publishing Account</label>
+                    <select id="selected_account" name="selected_account" class="w-full rounded-lg border-slate-300 p-3 text-sm focus:border-indigo-500 focus:ring-indigo-500 transition"></select>
+                  </div>
+                  <div>
+                    <label for="upload_speed" class="block text-sm font-medium text-slate-700 mb-2">Upload Speed Profile (Chunk Size)</label>
+                    <select id="upload_speed" onchange="onSpeedProfileChange(this.value)" class="w-full rounded-lg border-slate-300 p-3 text-sm focus:border-indigo-500 focus:ring-indigo-500 transition">
+                      <option value="4" selected>4 MB — Mobile Data (Balanced & Stable)</option>
+                      <option value="8">8 MB — High-Speed Wi-Fi / 5G (Maximum Speed)</option>
+                      <option value="2">2 MB — Low Signal / Data Saver</option>
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              <!-- PAGE 3: VIDEO DETAILS -->
+              <section id="step-page-3" class="hidden space-y-4">
+                <div>
+                  <h2 class="text-xl font-bold text-slate-800">Video Details</h2>
+                  <p class="text-xs text-slate-500 mt-1">Select media from device and set video information.</p>
+                </div>
+                <div class="bg-white rounded-xl border border-slate-200 p-5 space-y-4 shadow-sm">
+                  <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-2">Video Files</label>
+                    <button type="button" onclick="Android.selectVideoFile('onVideosSelected')" class="w-full text-left p-3 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 mb-3 transition"><span id="video-file-name">Select Videos...</span></button>
+                    <div id="film-strip-container"></div>
+                  </div>
+                  <div>
+                    <label for="video_title" class="block text-sm font-medium text-slate-700 mb-2">Title</label>
+                    <input type="text" id="video_title" name="video_title" placeholder="A compelling title for your video" class="form-input w-full rounded-lg border-slate-300 p-3 text-sm focus:border-indigo-500 focus:ring-indigo-500 transition" />
+                  </div>
+                  <div>
+                    <label for="video_description" class="block text-sm font-medium text-slate-700 mb-2">Description</label>
+                    <textarea id="video_description" name="video_description" placeholder="A detailed description of the video content..." class="form-input w-full rounded-lg border-slate-300 p-3 text-sm min-h-[100px] focus:border-indigo-500 focus:ring-indigo-500 transition"></textarea>
+                  </div>
+                  <div>
+                    <label for="video_privacy" class="block text-sm font-medium text-slate-700 mb-2">Privacy Status</label>
+                    <select id="video_privacy" name="video_privacy" class="form-input w-full rounded-lg border-slate-300 p-3 text-sm focus:border-indigo-500 focus:ring-indigo-500 transition">
+                      <option value="private" selected>Private</option>
+                      <option value="unlisted">Unlisted</option>
+                      <option value="public">Public</option>
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+            </form>
+          </div>
+        </div>
+      </main>
+
+      <!-- NAVIGATION FOOTER -->
+      <footer class="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t border-slate-200 p-3 z-50">
+        <div class="max-w-xl mx-auto flex items-center gap-3">
+          <button id="wizard-prev-btn" type="button" onclick="goToStep(currentStep - 1)" class="hidden w-1/3 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-all text-sm flex items-center justify-center gap-1 shadow-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z"></path></svg>
+            Previous
+          </button>
+          
+          <button id="wizard-next-btn" type="button" onclick="goToStep(currentStep + 1)" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition-all text-sm shadow-md shadow-indigo-500/20 flex items-center justify-center gap-1">
+            <span>Next: Configure Task</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"></path></svg>
+          </button>
+
+          <button id="start-automation-btn" type="button" class="hidden w-2/3 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors duration-200 shadow-md shadow-indigo-500/20 text-sm">
+            Start Upload Process
+          </button>
+        </div>
+      </footer>
+    </div>
+
+    <!-- TERMINAL VIEW WITH SLEEK ICON-ONLY CONTROLS -->
+    <div id="terminal-view" class="fixed inset-0 bg-[#1e1e1e] z-[60] hidden flex-col">
+      <div class="flex-shrink-0 bg-slate-800/95 backdrop-blur-sm border-b border-slate-700/80 px-4 py-2.5 text-white flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500/50"></span>
+          <span class="font-mono text-xs font-bold tracking-wider text-slate-200">AUTOMATION LOG</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <!-- 1. Test API: Modern Wireless/Broadcast Icon (Icon Only) -->
+          <button id="test-connection-btn" title="Test Connection with YouTube" class="p-2 rounded-xl bg-slate-700/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-600/60 shadow-sm active:scale-95 transition-all flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256"><path d="M128,48a96,96,0,0,0-96,96,8,8,0,0,0,16,0,80,80,0,1,1,160,0,8,8,0,0,0,16,0A96,96,0,0,0,128,48Zm0,32a64,64,0,0,0-64,64,8,8,0,0,0,16,0,48,48,0,1,1,96,0,8,8,0,0,0,16,0A64.07,64.07,0,0,0,128,80Zm0,32a32,32,0,0,0-32,32,8,8,0,0,0,16,0,16,16,0,1,1,32,0,8,8,0,0,0,16,0A32,32,0,0,0,128,112Zm0,64a12,12,0,1,0-12-12A12,12,0,0,0,128,176Z"/></svg>
+          </button>
+          
+          <!-- 2. Batch Mode: Modern Layers/Queue Icon (Icon Only) -->
+          <button id="batch-mode-toggle" title="Toggle Batch Mode" class="p-2 rounded-xl bg-slate-700/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-600/60 shadow-sm active:scale-95 transition-all flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256"><path d="M224,120v40a8,8,0,0,1-8,8H176v48a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V88a8,8,0,0,1,8-8H88V40a8,8,0,0,1,8-8H216a8,8,0,0,1,8,8Zm-64,16H104a8,8,0,0,1-8-8V96H48V208H160Zm48-80H104v32h64a8,8,0,0,1,8,8v40h32Z"/></svg>
+          </button>
+          
+          <!-- 3. Return to Config: Sleek Sliders / Settings Icon (Icon Only) -->
+          <button onclick="switchTab('config')" title="Back to Config" class="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm active:scale-95 transition-all flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,0-16,0V40H40a8,8,0,0,0,0,16h64V80a8,8,0,0,0,16,0V56h96a8,8,0,0,0,0-16ZM216,120H160V96a8,8,0,0,0-16,0v64a8,8,0,0,0,16,0V136h56a8,8,0,0,0,0-16ZM80,176H40a8,8,0,0,0,0,16H80v24a8,8,0,0,0,16,0V192h120a8,8,0,0,0,0-16H96V152a8,8,0,0,0-16,0Z"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="terminal-container" class="w-full flex-1 overflow-hidden"></div>
+    </div>
+
+<script>
+    // --- GLOBAL STATE ---
+    let pyodide = null,
+        terminal = null,
+        fitAddon = null,
+        accountCount = 0;
+
+    let accountsData = [];
+    let currentAccountIdForJson = null;
+    let selectedVideos = [];
+    let isBatchMode = false;
+    let currentStep = 1;
+
+    // --- STEP WIZARD NAVIGATION ---
+    function goToStep(step) {
+        if (step < 1 || step > 3) return;
+        currentStep = step;
+
+        document.getElementById('step-page-1').classList.toggle('hidden', currentStep !== 1);
+        document.getElementById('step-page-2').classList.toggle('hidden', currentStep !== 2);
+        document.getElementById('step-page-3').classList.toggle('hidden', currentStep !== 3);
+
+        const progress = document.getElementById('stepper-progress');
+        if (progress) {
+            progress.style.width = currentStep === 1 ? '0%' : currentStep === 2 ? '50%' : '100%';
+        }
+
+        for (let i = 1; i <= 3; i++) {
+            const ind = document.getElementById(`step-indicator-${i}`);
+            const lbl = document.getElementById(`step-label-${i}`);
+            if (!ind || !lbl) continue;
+            if (i < currentStep) {
+                ind.className = 'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-green-500 text-white shadow-sm transition-all';
+                ind.innerHTML = '✓';
+                lbl.className = 'text-xs font-medium text-green-600 mt-1.5';
+            } else if (i === currentStep) {
+                ind.className = 'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-indigo-600 text-white shadow-md ring-4 ring-indigo-100 transition-all';
+                ind.innerHTML = i;
+                lbl.className = 'text-xs font-semibold text-indigo-600 mt-1.5';
+            } else {
+                ind.className = 'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-white text-slate-400 border-2 border-slate-300 transition-all';
+                ind.innerHTML = i;
+                lbl.className = 'text-xs font-medium text-slate-400 mt-1.5';
+            }
+        }
+
+        const prevBtn = document.getElementById('wizard-prev-btn');
+        const nextBtn = document.getElementById('wizard-next-btn');
+        const startBtn = document.getElementById('start-automation-btn');
+
+        if (currentStep === 1) {
+            prevBtn.classList.add('hidden');
+            nextBtn.classList.remove('hidden');
+            nextBtn.className = 'w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition-all text-sm shadow-md shadow-indigo-500/20 flex items-center justify-center gap-1';
+            nextBtn.innerHTML = '<span>Next: Configure Task</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"></path></svg>';
+            startBtn.classList.add('hidden');
+        } else if (currentStep === 2) {
+            prevBtn.classList.remove('hidden');
+            nextBtn.classList.remove('hidden');
+            nextBtn.className = 'w-2/3 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition-all text-sm shadow-md shadow-indigo-500/20 flex items-center justify-center gap-1';
+            nextBtn.innerHTML = '<span>Next: Video Details</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z"></path></svg>';
+            startBtn.classList.add('hidden');
+        } else if (currentStep === 3) {
+            prevBtn.classList.remove('hidden');
+            nextBtn.classList.add('hidden');
+            startBtn.classList.remove('hidden');
+        }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // --- NATIVE AND PYTHON COMMUNICATION ---
+    let pendingAuthResolve = null;
+    function waitForAuthCode() { return new Promise(resolve => { pendingAuthResolve = resolve; }); }
+    function deliverAuthCodeToWeb(code) { if (pendingAuthResolve) { pendingAuthResolve(code); pendingAuthResolve = null; } }
+
+    function onVideosSelected(videosJsonString) {
+        try {
+            const newVideos = JSON.parse(videosJsonString);
+            if (isBatchMode) {
+                selectedVideos.push(...newVideos);
+            } else {
+                selectedVideos = newVideos;
+            }
+            logToTerminal(`--> Received ${newVideos.length} new video(s) from Android.`);
+            renderFilmStrip();
+        } catch(e) {
+            logToTerminal(`❌ Error processing selected videos: ${e}`);
+        }
+    }
+    
+    // --- SPEED PROFILE HANDLER ---
+    function onSpeedProfileChange(mb) {
+        const mbInt = parseInt(mb) || 4;
+        localStorage.setItem('selected_chunk_size', mbInt);
+        if (window.Android && typeof window.Android.setChunkSize === 'function') {
+            window.Android.setChunkSize(mbInt);
+        }
+    }
+
+    // --- UPLOAD ORCHESTRATION ---
+    let pendingChunkResolve = null;
+    let currentTaskCompletionResolver = null;
+
+    function onChunkingReadyForTask(taskId, mimeType, fileSize) {
+        processAllChunks(taskId, mimeType, fileSize);
+    }
+
+    function onChunkReceivedForTask(taskId, chunkBase64) {
+        if (pendingChunkResolve) {
+            pendingChunkResolve(chunkBase64);
+            pendingChunkResolve = null;
+        }
+    }
+
+    function getNextChunk(taskId) {
+        return new Promise(resolve => {
+            pendingChunkResolve = resolve;
+            Android.requestNextChunk(taskId);
+        });
+    }
+
+    async function processAllChunks(taskId, mimeType, fileSize) {
+        try {
+            const initiate_py = pyodide.globals.get('initiate_upload_session');
+            const upload_chunk_py = pyodide.globals.get('upload_chunk');
+            const finalize_py = pyodide.globals.get('finalize_upload');
+
+            const account = getSelectedAccount();
+            const details = getDetails();
+            const authTokenJson = JSON.stringify(account.token);
+            const detailsJson = JSON.stringify(details);
+
+            await initiate_py(taskId, authTokenJson, detailsJson, mimeType, fileSize);
+            
+            let lastLogTime = 0;
+
+            while (true) {
+                const chunk = await getNextChunk(taskId);
+                if (!chunk) { 
+                    break; 
+                }
+                
+                await upload_chunk_py(taskId, chunk);
+
+                const percent = pyodide.globals.get('upload_sessions').get(taskId).get_progress_percent();
+                
+                if (Date.now() - lastLogTime > 250) {
+                    logToTaskWindow(taskId, `--> [JS] Uploading to Google... ${percent.toFixed(1)}%`);
+                    lastLogTime = Date.now();
+                }
+            }
+            
+            logToTaskWindow(taskId, "--> [JS] All chunks sent. Finalizing with YouTube...");
+            await finalize_py(taskId);
+
+        } catch (e) {
+            logToTaskWindow(taskId, `❌ FATAL JS ERROR during chunk processing: ${e.message}`);
+        } finally {
+            Android.endChunking();
+            if (currentTaskCompletionResolver) {
+                currentTaskCompletionResolver();
+                currentTaskCompletionResolver = null;
+            }
+        }
+    }
+
+    function logFromNative(message) {
+        logToTerminal(message.replace(/\n/g, '\r\n'));
+    }
+
+    function logToTerminal(message) {
+        if (terminal && terminal.element) {
+            terminal.write(message.replace(/\n/g, '\r\n') + '\r\n');
+        }
+    }
+
+    function logToTaskWindow(taskId, message) {
+        const logEl = document.querySelector(`#task-log-${taskId}`);
+        if (logEl) {
+            logEl.textContent += message + '\n';
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+    }
+
+    // --- INITIALIZATION ---
+    async function initializeApp() {
+        const statusEl = document.getElementById('loading-status');
+        try {
+            statusEl.textContent = 'Loading Python...';
+            pyodide = await loadPyodide();
+            window.pyodide = pyodide;
+
+            statusEl.textContent = 'Loading required system libraries...';
+            await pyodide.loadPackage(["ssl", "pyodide-http"]);
+
+            statusEl.textContent = 'Initializing package manager...';
+            await pyodide.loadPackage("micropip");
+
+            statusEl.textContent = 'Installing Google libraries...';
+            const micropip = pyodide.pyimport("micropip");
+            await micropip.install(['google-api-python-client', 'google-auth-oauthlib']);
+
+            statusEl.textContent = 'Loading automation engine...';
+            
+            const pythonScript = Android.loadAssetFile('youtube_automator.py');
+            if (!pythonScript || pythonScript.trim() === "") {
+                throw new Error("Could not load youtube_automator.py from assets. Please ensure the file is present.");
+            }
+            
+            pyodide.FS.writeFile('youtube_automator.py', pythonScript);
+            pyodide.runPython(pythonScript);
+
+            pyodide.runPython("import pyodide_http; pyodide_http.patch_all()");
+
+            setupTerminal();
+            
+            window.logToTaskWindow = logToTaskWindow; 
+            pyodide.runPython(`import sys, io, js
+class JsTerminalWriter(io.TextIOBase):
+    def write(self, s): 
+        try: js.logToTerminal(s) 
+        except: pass
+sys.stdout = sys.stderr = JsTerminalWriter()`);
+
+            loadAccountsFromStorage();
+
+            const savedSpeed = localStorage.getItem('selected_chunk_size') || "4";
+            const speedSelect = document.getElementById('upload_speed');
+            if (speedSelect) {
+                speedSelect.value = savedSpeed;
+                onSpeedProfileChange(savedSpeed);
+            }
+
+            bindEventListeners();
+            initializeSliderMenu();
+            goToStep(1);
+
+            document.getElementById('loading-overlay').classList.add('opacity-0', 'pointer-events-none');
+        } catch (error) {
+            statusEl.textContent = `FATAL ERROR: ${error}`;
+            statusEl.classList.add('text-red-500');
+        }
+    }
+
+    function setupTerminal() {
+        const container = document.getElementById('terminal-container');
+        if (terminal) { 
+            terminal.dispose();
+            terminal = null;
+        }
+        terminal = new Terminal({ cursorBlink: true, theme: { background: '#1e1e1e' }});
+        fitAddon = new FitAddon.FitAddon();
+        terminal.loadAddon(fitAddon);
+        terminal.open(container);
+        fitAddon.fit();
+        window.addEventListener('resize', () => fitAddon && fitAddon.fit());
+        container.classList.remove('hidden');
+    }
+    
+    function bindEventListeners() {
+        document.getElementById("start-automation-btn").addEventListener("click", startAutomation);
+        document.getElementById("update-btn").addEventListener("click", updatePackagesAndScript);
+        document.getElementById("test-connection-btn").addEventListener("click", testConnection);
+        document.getElementById("batch-mode-toggle").addEventListener("click", toggleBatchMode);
+    }
+    
+    function getSelectedAccount() {
+        const selectedAccountId = document.getElementById("selected_account").value;
+        return accountsData.find(acc => acc.id === selectedAccountId);
+    }
+
+    function getDetails() {
+        return {
+            title: document.getElementById('video_title').value || "Untitled Video",
+            description: document.getElementById('video_description').value,
+            privacy: document.getElementById('video_privacy').value
+        };
+    }
+
+    // --- CORE AUTOMATION LOGIC ---
+    async function startAutomation() {
+        const account = getSelectedAccount();
+        const startBtn = document.getElementById('start-automation-btn');
+
+        if (!pyodide) { logToTerminal('❌ FATAL ERROR: Python engine is not initialized.'); switchTab('terminal'); return; }
+        if (!account) { logToTerminal('❌ ERROR: No account was selected.'); switchTab('terminal'); return; }
+        if (!account.token) { logToTerminal('❌ ERROR: The selected account is not authorized.'); switchTab('terminal'); return; }
+
+        const currentSpeed = document.getElementById('upload_speed')?.value || "4";
+        onSpeedProfileChange(currentSpeed);
+
+        startBtn.disabled = true;
+        startBtn.textContent = 'Upload in Progress...';
+
+        try {
+            if (isBatchMode) {
+                const batchVideos = selectedVideos.filter(v => v.isBatchSelected);
+                if (batchVideos.length === 0) {
+                    throw new Error('Batch mode is enabled, but no videos are selected in the film strip.');
+                }
+                await startBatchUpload(batchVideos);
+            } else {
+                const singleVideo = selectedVideos.find(v => v.isSingleSelected);
+                if (!singleVideo) {
+                    throw new Error('No video is selected in the film strip.');
+                }
+                await startSingleUpload(singleVideo);
+            }
+        } catch (e) {
+            logToTerminal(`❌ ERROR: ${e.message}`);
+            switchTab('terminal');
+        } finally {
+            startBtn.disabled = false;
+            startBtn.textContent = isBatchMode ? 'Start Batch Upload' : 'Start Upload Process';
+        }
+    }
+
+    async function startSingleUpload(video) {
+        switchTab('terminal');
+        const container = document.getElementById('terminal-container');
+        if (terminal) terminal.dispose();
+        container.innerHTML = ''; 
+
+        const taskId = `task_0`;
+        const taskWindow = document.createElement('div');
+        taskWindow.className = 'task-window';
+        taskWindow.style.height = '100%';
+        taskWindow.style.borderRadius = '0';
+        taskWindow.innerHTML = `
+            <div class="task-header">SINGLE UPLOAD LOG</div>
+            <pre id="task-log-${taskId}" class="task-log"></pre>
+        `;
+        container.appendChild(taskWindow);
+        
+        logToTaskWindow(taskId, "--- Starting Single Video Upload Process ---");
+
+        await new Promise(resolve => {
+            currentTaskCompletionResolver = resolve;
+            Android.startChunkingForTask(video.uri, taskId);
+        });
+        logToTaskWindow(taskId, "--- Single Upload Task Finished ---");
+    }
+
+    async function startBatchUpload(videos) {
+        switchTab('terminal');
+        const container = document.getElementById('terminal-container');
+        if (terminal) terminal.dispose();
+        container.innerHTML = '<div id="batch-terminal-grid"></div>'; 
+        
+        const grid = document.getElementById('batch-terminal-grid');
+        const videoQueue = [...videos];
+
+        videoQueue.forEach((video, index) => {
+            const taskId = `task_${index}`;
+            const taskWindow = document.createElement('div');
+            taskWindow.className = 'task-window';
+            taskWindow.innerHTML = `
+                <div class="task-header">TASK ${index + 1} / ${videoQueue.length}</div>
+                <pre id="task-log-${taskId}" class="task-log"></pre>
+            `;
+            grid.appendChild(taskWindow);
+        });
+
+        for (const [index, video] of videoQueue.entries()) {
+            const taskId = `task_${index}`;
+            logToTaskWindow(taskId, `--- Starting Task ${index + 1} of ${videoQueue.length} ---`);
+            
+            await new Promise(resolve => {
+                currentTaskCompletionResolver = resolve;
+                Android.startChunkingForTask(video.uri, taskId);
+            });
+            
+            logToTaskWindow(taskId, `--- Task ${index + 1} Finished ---\n`);
+        }
+    }
+
+    function renderFilmStrip() {
+        const container = document.getElementById('film-strip-container');
+        container.innerHTML = '';
+        selectedVideos.forEach(video => {
+            const img = document.createElement('img');
+            img.src = `data:image/webp;base64,${video.thumbnailB64}`;
+            img.dataset.uri = video.uri;
+            img.className = 'film-strip-item';
+            if (video.isSingleSelected) img.classList.add('single-selected');
+            if (video.isBatchSelected) img.classList.add('batch-selected');
+            
+            img.addEventListener('click', () => onFilmStripItemClick(video.uri));
+            container.appendChild(img);
+        });
+        document.getElementById('video-file-name').textContent = `${selectedVideos.length} video(s) selected`;
+    }
+
+    function onFilmStripItemClick(uri) {
+        if (isBatchMode) {
+            const video = selectedVideos.find(v => v.uri === uri);
+            video.isBatchSelected = !video.isBatchSelected;
+        } else {
+            selectedVideos.forEach(v => {
+                v.isSingleSelected = (v.uri === uri);
+                v.isBatchSelected = false; 
+            });
+        }
+        renderFilmStrip();
+    }
+    
+    function toggleBatchMode() {
+        isBatchMode = !isBatchMode;
+        const btn = document.getElementById('batch-mode-toggle');
+        const startBtn = document.getElementById('start-automation-btn');
+        btn.title = isBatchMode ? 'Disable Batch Mode' : 'Enable Batch Mode';
+        btn.classList.toggle('bg-emerald-600', isBatchMode);
+        btn.classList.toggle('border-emerald-400', isBatchMode);
+        btn.classList.toggle('text-white', isBatchMode);
+        
+        startBtn.textContent = isBatchMode ? 'Start Batch Upload' : 'Start Upload Process';
+
+        selectedVideos.forEach(v => {
+            v.isSingleSelected = false;
+            v.isBatchSelected = false;
+        });
+        renderFilmStrip();
+    }
+
+    function selectJsonForAccount(accountId) {
+        currentAccountIdForJson = accountId;
+        Android.selectJsonFile('handleJsonFile');
+    }
+    
+    function handleJsonFile(base64Data) {
+        const account = accountsData.find(acc => acc.id === `account-${currentAccountIdForJson}`);
+        const textarea = document.getElementById(`json_textarea_${currentAccountIdForJson}`);
+        if (account && textarea) {
+            try {
+                const jsonString = atob(base64Data);
+                textarea.value = jsonString;
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            } catch (e) {
+                console.error("Error decoding base64 from file:", e);
+                alert("The selected file could not be read. Please ensure it's a valid JSON file.");
+            }
+        }
+    }
+
+    function updateAccountJson(accountId, jsonString) {
+        const account = accountsData.find(acc => acc.id === accountId);
+        const textarea = document.getElementById(`json_textarea_${accountId.split('-')[1]}`);
+        if (!account || !textarea) return;
+
+        const trimmedJsonString = jsonString.trim();
+
+        if (trimmedJsonString === "") {
+            account.clientSecretsB64 = null;
+            textarea.classList.remove('border-red-500', 'focus:border-red-500', 'focus:ring-red-500');
+            textarea.classList.remove('border-green-500', 'focus:border-green-500', 'focus:ring-green-500');
+            saveAccounts();
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(trimmedJsonString);
+            if (parsed.web || parsed.installed) {
+                account.clientSecretsB64 = btoa(trimmedJsonString);
+                textarea.classList.remove('border-red-500', 'focus:border-red-500', 'focus:ring-red-500');
+                textarea.classList.add('border-green-500', 'focus:border-green-500', 'focus:ring-green-500');
+            } else {
+                throw new Error("Invalid structure: Missing 'web' or 'installed' key in JSON.");
+            }
+        } catch (e) {
+            account.clientSecretsB64 = null;
+            textarea.classList.remove('border-green-500', 'focus:border-green-500', 'focus:ring-green-500');
+            textarea.classList.add('border-red-500', 'focus:border-red-500', 'focus:ring-red-500');
+        }
+        saveAccounts();
+    }
+
+    function addAccount(accountData = {}) {
+        accountCount++;
+        const accountId = accountData.id ? parseInt(accountData.id.split('-')[1]) : accountCount;
+        const fullAccountId = `account-${accountId}`;
+
+        const newAccount = {
+            id: fullAccountId,
+            nickname: accountData.nickname || "",
+            clientSecretsB64: accountData.clientSecretsB64 || null,
+            token: accountData.token || null,
+            hasToken: !!accountData.token
+        };
+        
+        const existingIndex = accountsData.findIndex(acc => acc.id === newAccount.id);
+        if (existingIndex === -1) {
+            accountsData.push(newAccount);
+        } else {
+            accountsData[existingIndex] = newAccount;
+        }
+
+        const container = document.getElementById("accounts-container");
+        const div = document.createElement("div");
+        div.className = "account-set bg-white rounded-xl border border-slate-200 p-5 shadow-sm";
+        div.id = newAccount.id;
+        div.innerHTML = `<div class="space-y-4 max-w-xl">
+            <div class="flex justify-between items-start">
+                <div class="flex-grow">
+                    <label for="account_nickname_${accountId}" class="block text-sm font-semibold text-slate-700 mb-2">Account Nickname</label>
+                    <input type="text" id="account_nickname_${accountId}" placeholder="e.g., My Gaming Channel" name="account_nicknames[]" oninput="updateAccountNickname('${newAccount.id}', this.value)" class="form-input w-full rounded-lg border-slate-300 p-3 text-sm focus:border-indigo-500 focus:ring-indigo-500 transition" value="${newAccount.nickname}">
+                </div>
+                <button type="button" class="text-slate-400 hover:text-red-600 mt-8 ml-3 p-2 rounded-lg hover:bg-slate-50 transition" onclick="removeAccount('${newAccount.id}')" title="Remove Account"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192Z"></path></svg></button>
+            </div>
+            <div>
+                <div class="flex justify-between items-center mb-2">
+                    <label for="json_textarea_${accountId}" class="block text-sm font-semibold text-slate-700">Google Cloud Credentials</label>
+                    <button 
+                        type="button" 
+                        onclick="selectJsonForAccount(${accountId})" 
+                        title="Choose client_secrets.json from storage" 
+                        class="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg border border-indigo-200 transition-all shadow-sm"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 256 256"><path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM160,51.31,188.69,80H160ZM200,216H56V40h88V88a8,8,0,0,0,8,8h48V216Zm-42.34-77.66a8,8,0,0,1,0,11.32l-24,24a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L120,148.69V120a8,8,0,0,1,16,0v28.69l10.34-10.35A8,8,0,0,1,157.66,138.34Z"/></svg>
+                        <span>Choose File</span>
+                    </button>
+                </div>
+                <textarea 
+                    id="json_textarea_${accountId}" 
+                    oninput="updateAccountJson('${newAccount.id}', this.value)" 
+                    placeholder="Paste your client_secrets.json content here, or tap 'Choose File' above." 
+                    class="form-input w-full rounded-lg border-slate-300 p-3 text-sm min-h-[110px] focus:border-indigo-500 focus:ring-indigo-500 transition font-mono text-xs"
+                >${newAccount.clientSecretsB64 ? atob(newAccount.clientSecretsB64) : ''}</textarea>
+            </div>
+            <div class="auth-controls border-t border-slate-200 pt-4 mt-2"></div>
+        </div>`;
+        container.appendChild(div);
+
+        const textarea = div.querySelector(`#json_textarea_${accountId}`);
+        if(textarea) {
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        renderAuthState(newAccount.id, newAccount.hasToken);
+        if (!accountData.nickname) {
+            div.querySelector('input').focus();
+        }
+        updateAccountSelect();
+    }
+
+    function saveAccounts() {
+        localStorage.setItem('accounts', JSON.stringify(accountsData));
+    }
+
+    function loadAccountsFromStorage() {
+        const savedAccounts = localStorage.getItem('accounts');
+        accountsData = savedAccounts ? JSON.parse(savedAccounts) : [];
+        if (accountsData.length > 0) {
+            accountsData.forEach(acc => addAccount(acc));
+        } else {
+            addAccount();
+        }
+        updateAccountSelect();
+    }
+    
+    function updateAccountNickname(accountId, nickname) {
+        const index = accountsData.findIndex(acc => acc.id === accountId);
+        if (index !== -1) {
+            accountsData[index].nickname = nickname;
+            saveAccounts();
+            updateAccountSelect();
+        }
+    }
+
+    function removeAccount(accountId) {
+        accountsData = accountsData.filter(acc => acc.id !== accountId);
+        saveAccounts();
+        document.getElementById(accountId)?.remove();
+        updateAccountSelect();
+    }
+    
+    function renderAuthState(accountId, isAuthenticated) {
+        const accountDiv = document.getElementById(accountId);
+        if (!accountDiv) return;
+        const authContainer = accountDiv.querySelector('.auth-controls');
+        if (!authContainer) return;
+        authContainer.innerHTML = isAuthenticated ? 
+            `<div class="flex items-center justify-between"><div class="flex items-center gap-2 text-green-600 font-medium text-sm"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"></path></svg><span>Authenticated</span></div><button type="button" class="text-sm text-blue-600 hover:underline" onclick="authorizeAccount('${accountId}', true)">Re-authorize</button></div>` :
+            `<div class="flex items-center justify-between"><span class="text-sm font-medium text-red-600">Requires Authorization</span><button type="button" onclick="authorizeAccount('${accountId}')" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium shadow-sm">Authorize</button></div>`;
+    }
+
+    function updateAccountSelect() {
+        const selectEl = document.getElementById("selected_account");
+        const startBtn = document.getElementById("start-automation-btn");
+        const previousValue = selectEl.value;
+        selectEl.innerHTML = "";
+        accountsData.forEach(acc => {
+            if (acc.nickname.trim()) {
+                selectEl.add(new Option(acc.nickname.trim(), acc.id));
+            }
+        });
+        if (selectEl.options.length > 0) {
+            selectEl.value = previousValue;
+            if (!selectEl.value) selectEl.selectedIndex = 0;
+            selectEl.disabled = false;
+            startBtn.disabled = false;
+        } else {
+            selectEl.add(new Option("Add an account to begin", "", true, true));
+            selectEl.disabled = true;
+            startBtn.disabled = true;
+        }
+    }
+
+    async function authorizeAccount(accountId, forceReauth = false) {
+        const accountIndex = accountsData.findIndex(acc => acc.id === accountId);
+        if (accountIndex === -1) {
+            logToTerminal('Error: Account not found.');
+            return;
+        }
+        
+        const accountToAuthorize = accountsData[accountIndex];
+        
+        if (!accountToAuthorize.clientSecretsB64) {
+            alert("Please provide the client_secrets.json content first.");
+            return;
+        }
+        
+        switchTab('terminal');
+        const container = document.getElementById('terminal-container');
+        if (container.querySelector('#batch-terminal-grid')) {
+            container.innerHTML = '';
+        }
+        setupTerminal();
+        terminal.reset();
+        terminal.write("--- Starting Google Authorization ---\r\n> ");
+
+        function readLineFromTerminal() {
+            return new Promise(resolve => {
+                let buffer = '';
+                const disposable = terminal.onData(data => {
+                    const code = data.charCodeAt(0);
+                    if (code === 13) { terminal.write('\r\n'); disposable.dispose(); resolve(buffer.trim()); } 
+                    else if (code === 127) { if (buffer.length > 0) { terminal.write('\b \b'); buffer = buffer.slice(0, -1); } }
+                    else if (code >= 32) { terminal.write(data); buffer += data; }
+                });
+            });
+        }
+
+        try {
+            window.waitForAuthCode = readLineFromTerminal;
+            window.open_auth_url_in_browser = (url) => Android.openUrl(url);
+            pyodide.globals.set("js_secrets_b64", accountToAuthorize.clientSecretsB64);
+            
+            const tokenJsonString = await pyodide.runPythonAsync(`
+                from youtube_automator import get_token_from_web_flow
+                await get_token_from_web_flow(js_secrets_b64)
+            `);
+
+            if (!tokenJsonString) { throw new Error("Authorization cancelled or failed in Python."); }
+
+            accountsData[accountIndex].token = JSON.parse(tokenJsonString);
+            accountsData[accountIndex].hasToken = true;
+            saveAccounts();
+            logToTerminal("\r\n✅ SUCCESS: Authorization complete and token saved.");
+            renderAuthState(accountId, true);
+
+        } catch (error) {
+            logToTerminal(`\r\n❌ ERROR during authorization: ${error}`);
+            renderAuthState(accountId, false);
+        }
+    }
+    
+    async function testConnection() {
+        const account = getSelectedAccount();
+        if (!account || !account.token) {
+            logToTerminal("❌ ERROR: Please select an authorized account on the Config screen first.");
+            switchTab('config');
+            return;
+        }
+        switchTab('terminal');
+        const container = document.getElementById('terminal-container');
+        if (container.querySelector('#batch-terminal-grid')) {
+            container.innerHTML = '';
+        }
+        setupTerminal();
+        terminal.reset();
+        terminal.write("--- Starting Python Connection Test ---\r\n\r\n");
+        
+        pyodide.globals.set("js_auth_token", JSON.stringify(account.token));
+        await pyodide.runPythonAsync(`
+            from youtube_automator import test_api_connection
+            await test_api_connection(js_auth_token)
+        `);
+    }
+
+    function switchTab(tabName) {
+        const appContainer = document.getElementById('app-container');
+        const terminalView = document.getElementById('terminal-view');
+        const configBtn = document.getElementById('tab-btn-config');
+        const terminalBtn = document.getElementById('tab-btn-terminal');
+        const body = document.body;
+
+        if (tabName === 'terminal') {
+            appContainer.classList.add('hidden');
+            terminalView.classList.remove('hidden');
+            terminalView.classList.add('flex');
+            body.classList.add('terminal-active');
+            terminalBtn.classList.add('bg-indigo-600', 'text-white');
+            configBtn.classList.remove('bg-indigo-600', 'text-white');
+            setTimeout(() => {
+                const isGrid = !!document.getElementById('batch-terminal-grid');
+                if (fitAddon && terminal && terminal.element && !isGrid) {
+                    fitAddon.fit();
+                }
+            }, 50); 
+        } else {
+            terminalView.classList.add('hidden');
+            terminalView.classList.remove('flex');
+            appContainer.classList.remove('hidden');
+            body.classList.remove('terminal-active');
+            configBtn.classList.add('bg-indigo-600', 'text-white');
+            terminalBtn.classList.remove('bg-indigo-600', 'text-white');
+        }
+    }
+
+    async function updatePackagesAndScript(){
+        if(!pyodide) return alert("Engine not initialized.");
+        switchTab("terminal");
+        if (!terminal) setupTerminal();
+        terminal.reset();
+        terminal.write("--- Starting Update Process ---\r\n\r\n");
+        try {
+            terminal.write("--> Checking for updated packages...\r\n");
+            const micropip = pyodide.pyimport("micropip");
+            await micropip.install(["google-api-python-client","google-auth-oauthlib"]);
+            terminal.write("--> All packages are now up to date.\r\n\r\n");
+            
+            terminal.write("--> Reloading local automation engine from assets...\r\n");
+            const script = Android.loadAssetFile('youtube_automator.py');
+            if (!script || script.trim() === "") {
+                throw new Error("Could not reload youtube_automator.py from assets.");
+            }
+            pyodide.FS.writeFile("youtube_automator.py", script);
+            pyodide.runPython("import importlib; import youtube_automator; importlib.reload(youtube_automator); from youtube_automator import *");
+            terminal.write("--> Automation script reloaded.\r\n\r\n✅ Reload complete.\r\n");
+        } catch (error) {
+            logToTerminal(`\r\n❌ ERROR during update: ${error}`);
+        }
+    }
+
+    function initializeSliderMenu() {
+        const sliderMenu = document.getElementById("sliderMenu");
+        const overlay = document.getElementById("overlay");
+        const appContainer = document.getElementById('app-container');
+        const terminalView = document.getElementById('terminal-view');
+        
+        const helpView = document.getElementById('helpView');
+        const contactView = document.getElementById('contactView');
+        
+        const helpBtn = document.getElementById('help-btn');
+        const helpBackBtn = document.getElementById('help-back-btn');
+        
+        const contactBtn = document.getElementById('contact-btn');
+        const contactBackBtn = document.getElementById('contact-back-btn');
+        const contactSendBtn = document.getElementById('contact-send-btn');
+
+        function openMenu() { sliderMenu.classList.add("active"); overlay.classList.add("active"); }
+        function closeMenu() { sliderMenu.classList.remove("active"); overlay.classList.remove("active"); }
+        function closeAllViewsAndMenu() {
+            closeMenu();
+            helpView.classList.add('hidden');
+            contactView.classList.add('hidden');
+            const isTerminalActive = document.body.classList.contains('terminal-active');
+            if (isTerminalActive) {
+                terminalView.classList.remove('hidden');
+            } else {
+                appContainer.classList.remove('hidden');
+            }
+        }
+
+        let touchstartX = 0;
+        document.addEventListener('touchstart', e => {
+            if (e.changedTouches[0].screenX > window.innerWidth - 50) {
+                touchstartX = e.changedTouches[0].screenX;
+            } else {
+                touchstartX = 0;
+            }
+        }, { passive: true });
+        document.addEventListener('touchend', e => {
+            if (touchstartX === 0) return;
+            if (e.changedTouches[0].screenX < touchstartX - 50) { openMenu(); }
+            touchstartX = 0;
+        }, { passive: true });
+        sliderMenu.addEventListener('touchstart', e => { touchstartX = e.changedTouches[0].screenX; }, { passive: true });
+        sliderMenu.addEventListener('touchend', e => { if (e.changedTouches[0].screenX > touchstartX + 50) { closeMenu(); } }, { passive: true });
+        overlay.addEventListener("click", closeMenu);
+        helpBtn.addEventListener('click', () => { appContainer.classList.add('hidden'); terminalView.classList.add('hidden'); helpView.classList.remove('hidden'); closeMenu(); });
+        helpBackBtn.addEventListener('click', closeAllViewsAndMenu);
+        contactBtn.addEventListener('click', () => { appContainer.classList.add('hidden'); terminalView.classList.add('hidden'); contactView.classList.remove('hidden'); closeMenu(); });
+        contactBackBtn.addEventListener('click', closeAllViewsAndMenu);
+        contactSendBtn.addEventListener('click', () => {
+            const name = document.getElementById('contact-name').value.trim();
+            const email = document.getElementById('contact-email').value.trim();
+            const message = document.getElementById('contact-message').value.trim();
+            if (!name || !email || !message) { alert('Please fill out all fields.'); return; }
+            if (window.Android && typeof window.Android.sendContactMessage === 'function') {
+                window.Android.sendContactMessage(name, email, message);
+                alert('Thank you! Your message has been sent.');
+                document.getElementById('contact-form').reset();
+                closeAllViewsAndMenu();
+            } else {
+                alert('Error: Contact functionality is not available.');
+            }
+        });
+    }
+
+    window.onload = initializeApp;
+</script>
+  </body>
+</html>
