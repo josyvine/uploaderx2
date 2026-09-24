@@ -32,6 +32,12 @@ import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import javax.crypto.Cipher;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
+
 public class MainActivity extends Activity {
 
     private WebView mainWebView;
@@ -44,6 +50,9 @@ public class MainActivity extends Activity {
     private InputStream currentChunkingInputStream;
     private int chunkSize = 4 * 1024 * 1024; // Default 4MB (4,194,304 bytes - multiple of 256KB)
     private byte[] chunkBuffer = new byte[chunkSize];
+
+    // Secret passphrase matching GitHub Actions OpenSSL encryption
+    private static final String ASSET_PASSPHRASE = "UploaderX_Secret_Key_2026";
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -63,6 +72,9 @@ public class MainActivity extends Activity {
         webSettings.setAllowFileAccess(true);
         webSettings.setAllowFileAccessFromFileURLs(true);
         webSettings.setAllowUniversalAccessFromFileURLs(true);
+
+        // Disable WebView debugging to prevent Chrome DevTools inspection
+        WebView.setWebContentsDebuggingEnabled(false);
 
         mainWebView.addJavascriptInterface(new WebAppInterface(this), "Android");
         mainWebView.setWebViewClient(new WebViewClient());
@@ -223,11 +235,36 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    // --- IN-MEMORY AES-256 OPENSSL DECRYPTOR ---
+    private static String decryptOpenSsl(byte[] encryptedBytes, String passphrase) throws Exception {
+        if (encryptedBytes.length < 16) {
+            return new String(encryptedBytes, "UTF-8");
+        }
+        byte[] saltHeader = Arrays.copyOfRange(encryptedBytes, 0, 8);
+        String headerStr = new String(saltHeader, "US-ASCII");
+        if (!"Salted__".equals(headerStr)) {
+            return new String(encryptedBytes, "UTF-8");
+        }
+        byte[] salt = Arrays.copyOfRange(encryptedBytes, 8, 16);
+        byte[] cipherText = Arrays.copyOfRange(encryptedBytes, 16, encryptedBytes.length);
+
+        SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+        PBEKeySpec spec = new PBEKeySpec(passphrase.toCharArray(), salt, 10000, 48 * 8);
+        byte[] keyAndIv = factory.generateSecret(spec).getEncoded();
+
+        byte[] key = Arrays.copyOfRange(keyAndIv, 0, 32);
+        byte[] iv = Arrays.copyOfRange(keyAndIv, 32, 48);
+
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(iv));
+        byte[] decrypted = cipher.doFinal(cipherText);
+        return new String(decrypted, "UTF-8");
+    }
+
     public class WebAppInterface {
         Context mContext;
         WebAppInterface(Context c) { mContext = c; }
 
-        // --- DYNAMIC CHUNK SIZE SELECTOR (FROM HTML) ---
         @JavascriptInterface
         public void setChunkSize(int mb) {
             if (mb <= 0) mb = 4;
@@ -236,11 +273,23 @@ public class MainActivity extends Activity {
             logToTerminal("--> [Android] Upload chunk size set to " + mb + "MB.");
         }
 
-        // --- NATIVELY LOAD ASSET FILES (BYPASSES WEBVIEW CORS) ---
+        // --- NATIVELY LOAD & DECRYPT ASSET FILE IN MEMORY ---
         @JavascriptInterface
         public String loadAssetFile(String fileName) {
             try {
-                InputStream is = mContext.getAssets().open(fileName);
+                InputStream is = null;
+                try {
+                    is = mContext.getAssets().open(fileName);
+                } catch (IOException e) {
+                    if (fileName.endsWith(".bin")) {
+                        is = mContext.getAssets().open(fileName.replace(".bin", ".py"));
+                    } else if (fileName.endsWith(".py")) {
+                        is = mContext.getAssets().open(fileName.replace(".py", ".bin"));
+                    } else {
+                        throw e;
+                    }
+                }
+
                 ByteArrayOutputStream result = new ByteArrayOutputStream();
                 byte[] buffer = new byte[4096];
                 int length;
@@ -248,14 +297,19 @@ public class MainActivity extends Activity {
                     result.write(buffer, 0, length);
                 }
                 is.close();
-                return result.toString("UTF-8");
+                byte[] fileBytes = result.toByteArray();
+
+                // Decrypt in RAM if OpenSSL encrypted
+                if (fileBytes.length > 16 && new String(fileBytes, 0, 8, "US-ASCII").equals("Salted__")) {
+                    return decryptOpenSsl(fileBytes, ASSET_PASSPHRASE);
+                }
+                return new String(fileBytes, "UTF-8");
             } catch (Exception e) {
                 logToTerminal("❌ Failed to load asset: " + fileName + ", error: " + e.getMessage());
                 return null;
             }
         }
 
-        // --- FIXED: ALLOWS ALL MIME TYPES SO client_secrets.json IS NEVER GREYED OUT ---
         @JavascriptInterface
         public void selectJsonFile(String callback) {
             currentFileCallback = callback;
@@ -281,8 +335,6 @@ public class MainActivity extends Activity {
         public void getVideoAsBase64(final String videoUriString, final String taskId) {
             logToTerminal("WARNING: Deprecated function getVideoAsBase64 was called. Please use chunking functions.");
         }
-
-        // --- CHUNKING LOGIC ---
 
         @JavascriptInterface
         public void startChunkingForTask(final String videoUriString, final String taskId) {
@@ -384,7 +436,7 @@ public class MainActivity extends Activity {
                             logToTerminal("--> [Android] Video file stream closed.");
                         }
                     } catch (IOException e) {
-                        // Ignore any errors during cleanup
+                        // cleanup error
                     }
                 }
             });
