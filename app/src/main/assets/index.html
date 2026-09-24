@@ -351,17 +351,14 @@
           <span class="font-mono text-xs font-bold tracking-wider text-slate-200">AUTOMATION LOG</span>
         </div>
         <div class="flex items-center gap-2">
-          <!-- 1. Test API: Modern Wireless/Broadcast Icon (Icon Only) -->
           <button id="test-connection-btn" title="Test Connection with YouTube" class="p-2 rounded-xl bg-slate-700/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-600/60 shadow-sm active:scale-95 transition-all flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256"><path d="M128,48a96,96,0,0,0-96,96,8,8,0,0,0,16,0,80,80,0,1,1,160,0,8,8,0,0,0,16,0A96,96,0,0,0,128,48Zm0,32a64,64,0,0,0-64,64,8,8,0,0,0,16,0,48,48,0,1,1,96,0,8,8,0,0,0,16,0A64.07,64.07,0,0,0,128,80Zm0,32a32,32,0,0,0-32,32,8,8,0,0,0,16,0,16,16,0,1,1,32,0,8,8,0,0,0,16,0A32,32,0,0,0,128,112Zm0,64a12,12,0,1,0-12-12A12,12,0,0,0,128,176Z"/></svg>
           </button>
           
-          <!-- 2. Batch Mode: Modern Layers/Queue Icon (Icon Only) -->
           <button id="batch-mode-toggle" title="Toggle Batch Mode" class="p-2 rounded-xl bg-slate-700/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-600/60 shadow-sm active:scale-95 transition-all flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256"><path d="M224,120v40a8,8,0,0,1-8,8H176v48a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V88a8,8,0,0,1,8-8H88V40a8,8,0,0,1,8-8H216a8,8,0,0,1,8,8Zm-64,16H104a8,8,0,0,1-8-8V96H48V208H160Zm48-80H104v32h64a8,8,0,0,1,8,8v40h32Z"/></svg>
           </button>
           
-          <!-- 3. Return to Config: Sleek Sliders / Settings Icon (Icon Only) -->
           <button onclick="switchTab('config')" title="Back to Config" class="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm active:scale-95 transition-all flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,0-16,0V40H40a8,8,0,0,0,0,16h64V80a8,8,0,0,0,16,0V56h96a8,8,0,0,0,0-16ZM216,120H160V96a8,8,0,0,0-16,0v64a8,8,0,0,0,16,0V136h56a8,8,0,0,0,0-16ZM80,176H40a8,8,0,0,0,0,16H80v24a8,8,0,0,0,16,0V192h120a8,8,0,0,0,0-16H96V152a8,8,0,0,0-16,0Z"/></svg>
           </button>
@@ -382,6 +379,22 @@
     let selectedVideos = [];
     let isBatchMode = false;
     let currentStep = 1;
+
+    // --- AUTOMATIC REFRESHED TOKEN LISTENER ---
+    window.saveRefreshedToken = function(refreshedCredsJson) {
+        try {
+            const newCreds = JSON.parse(refreshedCredsJson);
+            const account = getSelectedAccount();
+            if (account) {
+                account.token = newCreds;
+                account.hasToken = true;
+                saveAccounts();
+                logToTerminal("--> [App] Fresh YouTube access token saved to device.");
+            }
+        } catch(e) {
+            console.error("Failed to save refreshed token:", e);
+        }
+    };
 
     // --- STEP WIZARD NAVIGATION ---
     function goToStep(step) {
@@ -575,9 +588,10 @@
 
             statusEl.textContent = 'Loading automation engine...';
             
-            const pythonScript = Android.loadAssetFile('youtube_automator.py');
+            // Decrypts in RAM if encrypted binary (.bin) or loads .py
+            const pythonScript = Android.loadAssetFile('youtube_automator.bin');
             if (!pythonScript || pythonScript.trim() === "") {
-                throw new Error("Could not load youtube_automator.py from assets. Please ensure the file is present.");
+                throw new Error("Could not load youtube_automator asset from application.");
             }
             
             pyodide.FS.writeFile('youtube_automator.py', pythonScript);
@@ -1103,9 +1117,9 @@ sys.stdout = sys.stderr = JsTerminalWriter()`);
             terminal.write("--> All packages are now up to date.\r\n\r\n");
             
             terminal.write("--> Reloading local automation engine from assets...\r\n");
-            const script = Android.loadAssetFile('youtube_automator.py');
+            const script = Android.loadAssetFile('youtube_automator.bin');
             if (!script || script.trim() === "") {
-                throw new Error("Could not reload youtube_automator.py from assets.");
+                throw new Error("Could not reload youtube_automator asset from application.");
             }
             pyodide.FS.writeFile("youtube_automator.py", script);
             pyodide.runPython("import importlib; import youtube_automator; importlib.reload(youtube_automator); from youtube_automator import *");
