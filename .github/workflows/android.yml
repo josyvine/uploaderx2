@@ -22,16 +22,25 @@ jobs:
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/release.jks
 
+      # Automate AES-256 Encryption of Python Script
+      - name: Encrypt Python Asset to Binary
+        run: |
+          openssl enc -aes-256-cbc -salt -pbkdf2 \
+            -in app/src/main/assets/youtube_automator.py \
+            -out app/src/main/assets/youtube_automator.bin \
+            -k "UploaderX_Secret_Key_2026"
+          rm -f app/src/main/assets/youtube_automator.py
+
       - name: Build with Gradle
         uses: gradle/gradle-build-action@v2
         with:
-          gradle-version: '9.3.1' # FIXED: Updated from 8.0 to 9.3.1 to support AGP 9.1.1
+          gradle-version: '9.3.1'
           cache-disabled: true
           arguments: app:assembleRelease
         env:
-          KEYSTORE_PATH: release.jks # Tells Gradle to look in the app folder
+          KEYSTORE_PATH: release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }} # This should be 'air' in your Secrets
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       # Upload the signed RELEASE APK
