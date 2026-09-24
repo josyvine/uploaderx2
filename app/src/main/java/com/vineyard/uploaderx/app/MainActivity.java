@@ -19,7 +19,6 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import androidx.multidex.MultiDex;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -53,12 +52,6 @@ public class MainActivity extends Activity {
 
     // Secret passphrase matching GitHub Actions OpenSSL encryption
     private static final String ASSET_PASSPHRASE = "UploaderX_Secret_Key_2026";
-
-    @Override
-    protected void attachBaseContext(Context newBase) {
-        super.attachBaseContext(newBase);
-        MultiDex.install(newBase);
-    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
