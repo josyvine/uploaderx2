@@ -1,17 +1,27 @@
-# Add project specific ProGuard rules here.
-# By default, the flags in this file are appended to flags specified
-# in C:\tools\adt-bundle-windows-x86_64-20131030\sdk/tools/proguard/proguard-android.txt
-# You can edit the include path and order by changing the proguardFiles
-# directive in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# -------------------------------------------------------------
+# UploaderX R8 / ProGuard Optimization Rules
+# -------------------------------------------------------------
 
-# Add any project specific keep options here:
+# 1. Keep JavaScript Interface methods so WebView can call them
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+-keep class com.vineyard.uploaderx.app.MainActivity$WebAppInterface {
+    public *;
+}
+
+# 2. Keep Cryptographic Decryption classes
+-keep class javax.crypto.** { *; }
+-keep class java.security.** { *; }
+
+# 3. Strip debug and verbose logging from release builds
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+}
+
+# 4. Suppress warnings for AndroidX WebKit internals
+-dontwarn androidx.webkit.**
+-keep class androidx.webkit.** { *; }
